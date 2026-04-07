@@ -22,7 +22,7 @@ export async function executeTests({ changeMap, mode, config }) {
     results.vitest = JSON.parse(vitestOutput);
   } catch (err) {
     // Vitest exits with non-zero on failure — capture output anyway
-    results.vitest = { error: err.stdout || err.message };
+    results.vitest = { error: err.stdout || err.stderr || err.message };
   }
 
   try {
@@ -33,7 +33,7 @@ export async function executeTests({ changeMap, mode, config }) {
     });
     results.playwright = JSON.parse(playwrightOutput);
   } catch (err) {
-    results.playwright = { error: err.stdout || err.message };
+    results.playwright = { error: err.stdout || err.stderr || err.message };
   }
 
   return results;
