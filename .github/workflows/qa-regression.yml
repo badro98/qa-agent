@@ -1,0 +1,35 @@
+name: QA Agent — Regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you running regression?'
+        required: false
+        default: 'Manual regression run'
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run QA Agent (Regression Mode)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          MODE: regression
+          REASON: ${{ github.event.inputs.reason }}
+        run: node src/index.js

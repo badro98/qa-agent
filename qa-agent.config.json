@@ -1,0 +1,28 @@
+{
+  "project": "pointd.fyi",
+  "platform": ["web"],
+  "test_runners": {
+    "unit": "vitest",
+    "e2e": "playwright"
+  },
+  "test_paths": {
+    "unit": "./src/__tests__",
+    "e2e": "./tests/e2e"
+  },
+  "critical_flows": [
+    "award search",
+    "program comparison",
+    "trip save",
+    "airport pill detection"
+  ],
+  "high_risk_surfaces": [
+    "auth",
+    "api_calls",
+    "state_mutations",
+    "zustand_store",
+    "supabase_queries"
+  ],
+  "performance_thresholds": {},
+  "test_output_mode": "propose",
+  "mobile": false
+}
