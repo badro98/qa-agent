@@ -1,4 +1,4 @@
-import { callClaude } from '../utils/anthropic.js';
+import { callClaude, HAIKU } from '../utils/anthropic.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -29,7 +29,7 @@ Score each surface. Output JSON:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 1500 });
+  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 1500, model: HAIKU });
   const clean = raw.replace(/```json|```/g, '').trim();
   try {
     return JSON.parse(clean);

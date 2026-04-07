@@ -1,4 +1,4 @@
-import { callClaude } from '../utils/anthropic.js';
+import { callClaude, HAIKU } from '../utils/anthropic.js';
 
 export async function synthesize({ changeMap, riskScores, coverageGaps, testProposals, testResults, mode, config }) {
   const userMessage = `
@@ -40,7 +40,7 @@ Output JSON:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt: 'You are a senior QA engineer writing a structured test report. Output only valid JSON.', userMessage, maxTokens: 1500 });
+  const raw = await callClaude({ systemPrompt: 'You are a senior QA engineer writing a structured test report. Output only valid JSON.', userMessage, maxTokens: 1500, model: HAIKU });
   const clean = raw.replace(/```json|```/g, '').trim();
   let report;
   try {

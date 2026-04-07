@@ -1,6 +1,9 @@
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-export async function callClaude({ systemPrompt, userMessage, maxTokens = 1000 }) {
+export const SONNET = 'claude-sonnet-4-20250514';
+export const HAIKU  = 'claude-haiku-4-20250514';
+
+export async function callClaude({ systemPrompt, userMessage, maxTokens = 1000, model = SONNET }) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -9,7 +12,7 @@ export async function callClaude({ systemPrompt, userMessage, maxTokens = 1000 }
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model,
       max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }]
