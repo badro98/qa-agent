@@ -43,7 +43,12 @@ Output JSON:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 4000 });
+  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 8000 });
   const clean = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    console.error('proposeTests: failed to parse Claude response:\n', raw.slice(0, 500));
+    throw e;
+  }
 }

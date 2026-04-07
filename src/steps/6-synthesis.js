@@ -42,7 +42,13 @@ Output JSON:
 
   const raw = await callClaude({ systemPrompt: 'You are a senior QA engineer writing a structured test report. Output only valid JSON.', userMessage, maxTokens: 1500 });
   const clean = raw.replace(/```json|```/g, '').trim();
-  const report = JSON.parse(clean);
+  let report;
+  try {
+    report = JSON.parse(clean);
+  } catch (e) {
+    console.error('synthesize: failed to parse Claude response:\n', raw.slice(0, 500));
+    throw e;
+  }
 
   // Attach proposals to report for use in PR comment
   report.testProposals = testProposals;

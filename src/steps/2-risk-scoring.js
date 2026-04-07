@@ -31,5 +31,10 @@ Score each surface. Output JSON:
 
   const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 1500 });
   const clean = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    console.error('scoreRisk: failed to parse Claude response:\n', raw.slice(0, 500));
+    throw e;
+  }
 }

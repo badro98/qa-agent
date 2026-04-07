@@ -46,5 +46,10 @@ Produce a change map as JSON with this shape:
 
   // Strip any markdown fences and parse JSON
   const clean = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    console.error('analyzeDiff: failed to parse Claude response:\n', raw.slice(0, 500));
+    throw e;
+  }
 }
