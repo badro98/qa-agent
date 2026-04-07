@@ -8,7 +8,14 @@ jobs:
   qa:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout target project
+        uses: actions/checkout@v4
+
+      - name: Checkout QA Agent
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/qa-agent
+          path: .qa-agent
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -28,4 +35,4 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           MODE: pr
-        run: node src/index.js
+        run: node .qa-agent/src/index.js

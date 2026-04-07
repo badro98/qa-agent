@@ -1,6 +1,9 @@
 import { callClaude } from '../utils/anthropic.js';
 import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function readTestFiles(config) {
   const paths = [config.test_paths.unit, config.test_paths.e2e].filter(Boolean);
@@ -21,7 +24,7 @@ function readTestFiles(config) {
 
 export async function analyzeCoverage({ changeMap, config }) {
   const testFiles = readTestFiles(config);
-  const systemPrompt = readFileSync('./prompts/coverage-gap.md', 'utf8');
+  const systemPrompt = readFileSync(join(__dirname, '../../prompts/coverage-gap.md'), 'utf8');
 
   const userMessage = `
 Change map:

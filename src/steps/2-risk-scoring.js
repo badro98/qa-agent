@@ -1,8 +1,12 @@
 import { callClaude } from '../utils/anthropic.js';
 import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export async function scoreRisk({ changeMap, config }) {
-  const systemPrompt = readFileSync('./prompts/risk-scoring.md', 'utf8');
+  const systemPrompt = readFileSync(join(__dirname, '../../prompts/risk-scoring.md'), 'utf8');
 
   const userMessage = `
 Change map:

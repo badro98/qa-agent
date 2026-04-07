@@ -1,6 +1,10 @@
 import { getPRDiff } from '../utils/github.js';
 import { callClaude } from '../utils/anthropic.js';
 import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export async function analyzeDiff({ prNumber, repo, config }) {
   // Fetch changed files from GitHub
@@ -13,7 +17,7 @@ export async function analyzeDiff({ prNumber, repo, config }) {
     changes: f.patch?.slice(0, 2000) ?? '' // cap patch size per file
   }));
 
-  const systemPrompt = readFileSync('./prompts/diff-analysis.md', 'utf8');
+  const systemPrompt = readFileSync(join(__dirname, '../../prompts/diff-analysis.md'), 'utf8');
 
   const userMessage = `
 Project: ${config.project}
