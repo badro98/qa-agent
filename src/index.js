@@ -8,13 +8,42 @@ import { synthesize } from './steps/6-synthesis.js';
 import { postPRComment } from './output/pr-comment.js';
 import { openGitHubIssue } from './output/github-issue.js';
 
-const MODE = process.env.MODE; // 'pr' or 'regression'
+const MODE = process.env.MODE; // 'pr', 'regression', or 'rerun'
 const PR_NUMBER = process.env.PR_NUMBER;
 const REPO = process.env.REPO;
 
 async function run() {
   console.log(`Running QA Agent in ${MODE} mode...`);
   const config = loadConfig();
+
+  // Rerun mode: skip analysis steps, re-execute only the specified failing tests
+  if (MODE === 'rerun') {
+    let failedTests = { vitest: [], playwright: [] };
+    try {
+      failedTests = JSON.parse(process.env.FAILED_TESTS || '{}');
+    } catch {
+      console.error('FAILED_TESTS env var is not valid JSON. Running full suite fallback.');
+    }
+
+    const testResults = await executeTests({ changeMap: null, mode: 'rerun', failedTests, config });
+
+    const report = await synthesize({
+      changeMap: null,
+      riskScores: null,
+      coverageGaps: null,
+      testProposals: null,
+      testResults,
+      mode: 'rerun',
+      config
+    });
+
+    if (PR_NUMBER) {
+      await postPRComment({ report, prNumber: PR_NUMBER, repo: REPO });
+    }
+
+    console.log(`QA Agent re-run complete. Verdict: ${report.verdict}`);
+    return;
+  }
 
   // Step 1: Analyze the diff (PR mode) or skip (regression runs full suite)
   const changeMap = MODE === 'pr'
@@ -37,7 +66,7 @@ async function run() {
     : null;
 
   // Step 5: Execute existing tests (scoped in PR mode, full suite in regression)
-  const testResults = await executeTests({ changeMap, mode: MODE, config });
+  const testResults = await executeTests({ changeMap, mode: MODE, failedTests: null, config });
 
   // Step 6: Synthesize everything into a report
   const report = await synthesize({
