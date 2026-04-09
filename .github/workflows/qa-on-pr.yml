@@ -3,6 +3,13 @@ name: QA Agent — PR
 on:
   pull_request:
     types: [opened, synchronize]
+    # Only run when product code changes — skip test-only, docs, config PRs.
+    # Customize paths per project (src/, app/, functions/, supabase/, etc.)
+    paths:
+      - 'src/**'
+      - 'app/**'
+      - 'public/**'
+      - 'functions/**'
 
 jobs:
   qa:
