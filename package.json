@@ -6,5 +6,7 @@
     "start": "node src/index.js",
     "test": "echo 'Run via GitHub Actions or set env vars manually'"
   },
-  "dependencies": {}
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  }
 }
