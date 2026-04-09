@@ -24,5 +24,6 @@
   ],
   "performance_thresholds": {},
   "test_output_mode": "propose",
+  "test_retry_count": 1,
   "mobile": false
 }
