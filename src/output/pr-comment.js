@@ -19,6 +19,16 @@ export async function postPRComment({ report, prNumber, repo }) {
     body += '\n';
   }
 
+  // Re-run instructions block — only shown when there are structured failures
+  if (report.failedTests && (report.failedTests.vitest?.length > 0 || report.failedTests.playwright?.length > 0)) {
+    const failedTestsJson = JSON.stringify(report.failedTests);
+    body += `### Re-run Failed Tests\n`;
+    body += `Trigger the [QA Agent Re-run](../../actions/workflows/qa-rerun.yml) workflow with:\n\n`;
+    body += `| Field | Value |\n|---|---|\n`;
+    body += `| \`failed_tests\` | \`${failedTestsJson}\` |\n`;
+    body += `| \`pr_number\` | \`${prNumber}\` |\n\n`;
+  }
+
   if (report.gaps_summary?.length > 0) {
     body += `### Coverage Gaps\n`;
     report.gaps_summary.forEach(g => { body += `- ${g}\n`; });
