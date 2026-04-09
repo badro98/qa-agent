@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 
 export async function executeTests({ changeMap, mode, config }) {
   const results = { vitest: null, playwright: null };
+  const cwd = process.env.PROJECT_ROOT || process.cwd();
 
   // In regression mode, run the full suite
   // In PR mode, scope to affected test files only
@@ -17,7 +18,8 @@ export async function executeTests({ changeMap, mode, config }) {
     const vitestOutput = execSync(vitestCmd, {
       encoding: 'utf8',
       timeout: 120000,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd,
     });
     results.vitest = JSON.parse(vitestOutput);
   } catch (err) {
@@ -29,7 +31,8 @@ export async function executeTests({ changeMap, mode, config }) {
     const playwrightOutput = execSync(playwrightCmd, {
       encoding: 'utf8',
       timeout: 180000,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd,
     });
     results.playwright = JSON.parse(playwrightOutput);
   } catch (err) {
