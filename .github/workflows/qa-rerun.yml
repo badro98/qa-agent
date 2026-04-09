@@ -1,0 +1,46 @@
+name: QA Agent — Re-run Failed Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      failed_tests:
+        description: 'JSON object of failing tests, e.g. {"vitest":["src/__tests__/foo.test.js"],"playwright":["user can log in"]}'
+        required: true
+      pr_number:
+        description: 'PR number to post the updated comment on (leave blank for regression re-runs)'
+        required: false
+        default: ''
+
+jobs:
+  rerun:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target project
+        uses: actions/checkout@v4
+
+      - name: Checkout QA Agent
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/qa-agent
+          path: .qa-agent
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Re-run Failed Tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number }}
+          REPO: ${{ github.repository }}
+          MODE: rerun
+          FAILED_TESTS: ${{ github.event.inputs.failed_tests }}
+        run: node .qa-agent/src/index.js
