@@ -6,16 +6,18 @@ import { dirname, join } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function readTestFiles(config) {
+  const root = process.env.PROJECT_ROOT || '.';
   const paths = [config.test_paths.unit, config.test_paths.e2e].filter(Boolean);
   const testFiles = [];
 
   for (const testPath of paths) {
-    if (!existsSync(testPath)) continue;
-    const files = readdirSync(testPath, { recursive: true })
+    const fullPath = join(root, testPath);
+    if (!existsSync(fullPath)) continue;
+    const files = readdirSync(fullPath, { recursive: true })
       .filter(f => f.endsWith('.test.js') || f.endsWith('.test.ts') ||
                    f.endsWith('.spec.js') || f.endsWith('.spec.ts'));
     for (const file of files) {
-      const content = readFileSync(join(testPath, file), 'utf8').slice(0, 1500);
+      const content = readFileSync(join(fullPath, file), 'utf8').slice(0, 1500);
       testFiles.push({ file: join(testPath, file), content });
     }
   }

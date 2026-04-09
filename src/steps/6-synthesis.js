@@ -53,5 +53,11 @@ Output JSON:
   // Attach proposals to report for use in PR comment
   report.testProposals = testProposals;
 
+  // Attach structured failure lists so pr-comment.js can build the re-run block
+  report.failedTests = {
+    vitest: (testResults.failures?.vitest || []).map(f => f.file),
+    playwright: (testResults.failures?.playwright || []).map(f => f.test),
+  };
+
   return report;
 }
