@@ -1,4 +1,6 @@
 import { execSync } from 'child_process';
+import { dirname, basename, extname } from 'path';
+import { existsSync } from 'fs';
 
 export async function executeTests({ changeMap, mode, failedTests, config }) {
   const results = { vitest: null, playwright: null, failures: { vitest: [], playwright: [] } };
@@ -69,8 +71,70 @@ function buildVitestCmd(mode, changeMap, failedTests, config) {
     return `npx vitest run ${failedTests.vitest.join(' ')} --reporter=json`;
   }
   if (mode === 'regression') return 'npx vitest run --reporter=json';
+
+  // PR mode: scope to test files that correspond to changed source files
+  const scopedFiles = deriveScopedTestFiles(changeMap);
+  if (scopedFiles.length > 0) {
+    return `npx vitest run ${scopedFiles.join(' ')} --reporter=json`;
+  }
+
+  // Fallback (no source files changed, e.g. docs/config only): run full unit suite
   const unitPath = config.test_paths.unit;
   return `npx vitest run ${unitPath} --reporter=json`;
+}
+
+// Derive test file paths from changed source files in the changeMap.
+// Checks __tests__/ subdirectory layout first, then flat (alongside source) layout.
+// Numeric prefixes like "5-" are stripped since test files don't carry them.
+// Pass existsFn to override fs.existsSync (useful in tests).
+export function deriveScopedTestFiles(changeMap, { existsFn = existsSync } = {}) {
+  if (!changeMap?.surfaces?.length) return [];
+
+  const extensions = ['.test.js', '.test.ts', '.test.tsx', '.test.jsx'];
+  const seenSources = new Set();
+  const testFiles = [];
+
+  for (const surface of changeMap.surfaces) {
+    if (surface.type === 'test') continue;
+
+    const file = surface.file;
+    const dir = dirname(file);
+    const base = basename(file, extname(file)).replace(/^\d+-/, '');
+    const sourceKey = `${dir}/${base}`;
+
+    if (seenSources.has(sourceKey)) continue; // deduplicate by source file
+    seenSources.add(sourceKey);
+
+    // Check __tests__/ subdirectory first, then flat layout alongside source
+    const candidates = [
+      ...extensions.map(ext => `${dir}/__tests__/${base}${ext}`),
+      ...extensions.map(ext => `${dir}/${base}${ext}`),
+    ];
+
+    for (const candidate of candidates) {
+      if (existsFn(candidate)) {
+        testFiles.push(candidate);
+        break; // one test file per source file
+      }
+    }
+  }
+
+  return testFiles;
+}
+
+// Derive a Playwright --grep pattern from the flows affected by changed surfaces.
+// Returns null when no flows are affected (caller falls back to @smoke only).
+export function deriveScopedPlaywrightGrep(changeMap) {
+  if (!changeMap?.surfaces?.length) return null;
+
+  const flows = new Set();
+  for (const surface of changeMap.surfaces) {
+    for (const flow of surface.affects_flows || []) {
+      if (flow) flows.add(flow);
+    }
+  }
+
+  return flows.size > 0 ? [...flows].join('|') : null;
 }
 
 function buildPlaywrightCmd(mode, changeMap, failedTests) {
@@ -78,7 +142,11 @@ function buildPlaywrightCmd(mode, changeMap, failedTests) {
     return `npx playwright test --reporter=json --grep "${failedTests.playwright.join('|')}"`;
   }
   if (mode === 'regression') return 'npx playwright test --reporter=json';
-  return 'npx playwright test --grep @smoke --reporter=json';
+
+  // PR mode: always include @smoke, and add affected flow names when available
+  const flowGrep = deriveScopedPlaywrightGrep(changeMap);
+  const grepPattern = flowGrep ? `@smoke|${flowGrep}` : '@smoke';
+  return `npx playwright test --grep "${grepPattern}" --reporter=json`;
 }
 
 // --- Failure extraction (also exported for tests) ---
