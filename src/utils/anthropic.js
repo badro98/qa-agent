@@ -1,7 +1,7 @@
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-export const SONNET = 'claude-sonnet-4-20250514';
-export const HAIKU  = 'claude-haiku-4-20250514';
+export const SONNET = 'claude-sonnet-4-6';
+export const HAIKU  = 'claude-haiku-4-5-20251001';
 
 export async function callClaude({ systemPrompt, userMessage, maxTokens = 1000, model = SONNET }) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
