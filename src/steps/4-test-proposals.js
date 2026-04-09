@@ -43,7 +43,7 @@ Output JSON:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 16000 });
+  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 32000 });
   const clean = raw.replace(/```json|```/g, '').trim();
   try {
     return JSON.parse(clean);
