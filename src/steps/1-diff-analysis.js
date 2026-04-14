@@ -10,11 +10,11 @@ export async function analyzeDiff({ prNumber, repo, config }) {
   // Fetch changed files from GitHub
   const files = await getPRDiff({ repo, prNumber });
 
-  // Build a condensed diff summary to send to Claude
-  const diffSummary = files.map(f => ({
+  // Build a condensed diff summary to send to Claude (cap at 40 files for large PRs)
+  const diffSummary = files.slice(0, 40).map(f => ({
     filename: f.filename,
     status: f.status, // added, modified, removed
-    changes: f.patch?.slice(0, 2000) ?? '' // cap patch size per file
+    changes: f.patch?.slice(0, 1500) ?? '' // cap patch size per file
   }));
 
   const systemPrompt = readFileSync(join(__dirname, '../../prompts/diff-analysis.md'), 'utf8');
@@ -42,7 +42,7 @@ Produce a change map as JSON with this shape:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 2000 });
+  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 4000 });
 
   // Strip any markdown fences and parse JSON
   const clean = raw.replace(/```json|```/g, '').trim();
