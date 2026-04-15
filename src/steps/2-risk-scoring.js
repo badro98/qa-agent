@@ -29,7 +29,7 @@ Score each surface. Output JSON:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 1500, model: HAIKU });
+  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 4096, model: HAIKU });
   const clean = raw.replace(/```json|```/g, '').trim();
   try {
     return JSON.parse(clean);
