@@ -45,9 +45,15 @@ Output JSON:
   let report;
   try {
     report = JSON.parse(clean);
-  } catch (e) {
-    console.error('synthesize: failed to parse Claude response:\n', raw.slice(0, 500));
-    throw e;
+  } catch {
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { report = JSON.parse(match[0]); } catch {}
+    }
+    if (!report) {
+      console.error('synthesize: failed to parse Claude response:\n', raw.slice(0, 500));
+      throw new Error('synthesize: Claude response is not valid JSON');
+    }
   }
 
   // Attach proposals to report for use in PR comment
