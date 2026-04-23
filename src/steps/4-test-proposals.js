@@ -47,8 +47,12 @@ Output JSON:
   const clean = raw.replace(/```json|```/g, '').trim();
   try {
     return JSON.parse(clean);
-  } catch (e) {
+  } catch {
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch {}
+    }
     console.error('proposeTests: failed to parse Claude response:\n', raw.slice(0, 500));
-    throw e;
+    throw new Error('proposeTests: Claude response is not valid JSON');
   }
 }
