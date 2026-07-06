@@ -1,4 +1,4 @@
-import { callClaude } from '../utils/anthropic.js';
+import { callClaudeJson } from '../utils/json.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -43,16 +43,5 @@ Output JSON:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt, userMessage, maxTokens: 32000 });
-  const clean = raw.replace(/```json|```/g, '').trim();
-  try {
-    return JSON.parse(clean);
-  } catch {
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]); } catch {}
-    }
-    console.error('proposeTests: failed to parse Claude response:\n', raw.slice(0, 500));
-    throw new Error('proposeTests: Claude response is not valid JSON');
-  }
+  return callClaudeJson({ label: 'proposeTests', systemPrompt, userMessage, maxTokens: 32000 });
 }

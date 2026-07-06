@@ -1,4 +1,5 @@
-import { callClaude, HAIKU } from '../utils/anthropic.js';
+import { HAIKU } from '../utils/anthropic.js';
+import { callClaudeJson } from '../utils/json.js';
 
 export async function synthesize({ changeMap, riskScores, coverageGaps, testProposals, testResults, mode, config }) {
   const userMessage = `
@@ -40,21 +41,7 @@ Output JSON:
 }
   `;
 
-  const raw = await callClaude({ systemPrompt: 'You are a senior QA engineer writing a structured test report. Output only valid JSON.', userMessage, maxTokens: 1500, model: HAIKU });
-  const clean = raw.replace(/```json|```/g, '').trim();
-  let report;
-  try {
-    report = JSON.parse(clean);
-  } catch {
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { report = JSON.parse(match[0]); } catch {}
-    }
-    if (!report) {
-      console.error('synthesize: failed to parse Claude response:\n', raw.slice(0, 500));
-      throw new Error('synthesize: Claude response is not valid JSON');
-    }
-  }
+  const report = await callClaudeJson({ label: 'synthesize', systemPrompt: 'You are a senior QA engineer writing a structured test report. Output only valid JSON.', userMessage, maxTokens: 1500, model: HAIKU });
 
   // Attach proposals to report for use in PR comment
   report.testProposals = testProposals;
