@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { executeTests, extractVitestFailures, extractPlaywrightFailures, deriveScopedTestFiles, deriveScopedPlaywrightGrep } from '../5-test-execution.js';
+import { executeTests, extractVitestFailures, extractPlaywrightFailures, deriveScopedTestFiles, deriveScopedPlaywrightGrep, capOutput } from '../5-test-execution.js';
 
 describe('executeTests e2e runner gate', () => {
   const passingVitestJson = JSON.stringify({ testResults: [] });
@@ -32,6 +32,39 @@ describe('executeTests e2e runner gate', () => {
     await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn });
 
     expect(calls.some(c => c.includes('playwright'))).toBe(true);
+  });
+});
+
+describe('capOutput', () => {
+  it('returns short strings unchanged', () => {
+    expect(capOutput('brief error')).toBe('brief error');
+  });
+
+  it('passes through non-string values', () => {
+    expect(capOutput(undefined)).toBeUndefined();
+    expect(capOutput(null)).toBeNull();
+  });
+
+  it('keeps head and tail of oversized output with a truncation note', () => {
+    const str = 'H'.repeat(3000) + 'T'.repeat(3000);
+    const out = capOutput(str);
+    expect(out.length).toBeLessThan(4100);
+    expect(out.startsWith('H'.repeat(2000))).toBe(true);
+    expect(out.endsWith('T'.repeat(2000))).toBe(true);
+    expect(out).toContain('[truncated 2000 chars]');
+  });
+});
+
+describe('executeTests error capping', () => {
+  it('caps unparseable runner output before storing it in results (issue #6)', async () => {
+    const hugeDump = 'FAIL '.repeat(50000); // ~250k chars, not JSON
+    const execFn = () => { throw Object.assign(new Error('exit 1'), { stdout: hugeDump }); };
+    const config = { test_runners: { unit: 'vitest' }, test_paths: { unit: './src' }, test_retry_count: 0 };
+
+    const results = await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn });
+
+    expect(results.vitest.error.length).toBeLessThan(5000);
+    expect(results.vitest.error).toContain('[truncated');
   });
 });
 
