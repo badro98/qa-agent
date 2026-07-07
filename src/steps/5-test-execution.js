@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import { dirname, basename, extname } from 'path';
 import { existsSync } from 'fs';
 
-export async function executeTests({ changeMap, mode, failedTests, config }) {
+export async function executeTests({ changeMap, mode, failedTests, config, execFn = execSync }) {
   const results = { vitest: null, playwright: null, failures: { vitest: [], playwright: [] } };
   const cwd = process.env.PROJECT_ROOT || process.cwd();
   const maxRetries = config.test_retry_count ?? 0;
@@ -13,7 +13,7 @@ export async function executeTests({ changeMap, mode, failedTests, config }) {
 
   while (vitestAttempts <= maxRetries) {
     try {
-      const out = execSync(vitestCmd, { encoding: 'utf8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'], cwd });
+      const out = execFn(vitestCmd, { encoding: 'utf8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'], cwd });
       results.vitest = JSON.parse(out);
       results.failures.vitest = []; // all passed
       break;
@@ -35,12 +35,19 @@ export async function executeTests({ changeMap, mode, failedTests, config }) {
   }
 
   // --- Playwright ---
+  // Repos without an e2e runner in qa-agent.config.json skip Playwright entirely,
+  // otherwise the error blob from a missing runner reads as a failure downstream.
+  if (!config.test_runners?.e2e) {
+    results.playwright = { skipped: true, reason: 'no e2e runner configured in qa-agent.config.json' };
+    return results;
+  }
+
   let playwrightCmd = buildPlaywrightCmd(mode, changeMap, failedTests);
   let playwrightAttempts = 0;
 
   while (playwrightAttempts <= maxRetries) {
     try {
-      const out = execSync(playwrightCmd, { encoding: 'utf8', timeout: 180000, stdio: ['pipe', 'pipe', 'pipe'], cwd });
+      const out = execFn(playwrightCmd, { encoding: 'utf8', timeout: 180000, stdio: ['pipe', 'pipe', 'pipe'], cwd });
       results.playwright = JSON.parse(out);
       results.failures.playwright = [];
       break;

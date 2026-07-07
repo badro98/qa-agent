@@ -1,5 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { extractVitestFailures, extractPlaywrightFailures, deriveScopedTestFiles, deriveScopedPlaywrightGrep } from '../5-test-execution.js';
+import { executeTests, extractVitestFailures, extractPlaywrightFailures, deriveScopedTestFiles, deriveScopedPlaywrightGrep } from '../5-test-execution.js';
+
+describe('executeTests e2e runner gate', () => {
+  const passingVitestJson = JSON.stringify({ testResults: [] });
+
+  function makeExecFn() {
+    const calls = [];
+    const execFn = (cmd) => {
+      calls.push(cmd);
+      return passingVitestJson;
+    };
+    return { execFn, calls };
+  }
+
+  it('skips Playwright when config has no e2e runner', async () => {
+    const { execFn, calls } = makeExecFn();
+    const config = { test_runners: { unit: 'vitest' }, test_paths: { unit: './src' }, test_retry_count: 0 };
+
+    const results = await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn });
+
+    expect(results.playwright).toEqual({ skipped: true, reason: 'no e2e runner configured in qa-agent.config.json' });
+    expect(results.failures.playwright).toEqual([]);
+    expect(calls.some(c => c.includes('playwright'))).toBe(false);
+    expect(calls.some(c => c.includes('vitest'))).toBe(true);
+  });
+
+  it('runs Playwright when config declares an e2e runner', async () => {
+    const { execFn, calls } = makeExecFn();
+    const config = { test_runners: { unit: 'vitest', e2e: 'playwright' }, test_paths: { unit: './src' }, test_retry_count: 0 };
+
+    await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn });
+
+    expect(calls.some(c => c.includes('playwright'))).toBe(true);
+  });
+});
 
 describe('extractVitestFailures', () => {
   it('returns empty array when output is null', () => {
