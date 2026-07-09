@@ -19,7 +19,7 @@ export async function executeTests({ changeMap, mode, failedTests, config, execF
       break;
     } catch (err) {
       const parsed = tryParseJson(err.stdout);
-      results.vitest = parsed || { error: err.stdout || err.stderr || err.message };
+      results.vitest = parsed || { error: capOutput(err.stdout || err.stderr || err.message) };
       results.failures.vitest = parsed ? extractVitestFailures(parsed) : [];
 
       if (vitestAttempts < maxRetries && results.failures.vitest.length > 0) {
@@ -53,7 +53,7 @@ export async function executeTests({ changeMap, mode, failedTests, config, execF
       break;
     } catch (err) {
       const parsed = tryParseJson(err.stdout);
-      results.playwright = parsed || { error: err.stdout || err.stderr || err.message };
+      results.playwright = parsed || { error: capOutput(err.stdout || err.stderr || err.message) };
       results.failures.playwright = parsed ? extractPlaywrightFailures(parsed) : [];
 
       if (playwrightAttempts < maxRetries && results.failures.playwright.length > 0) {
@@ -193,4 +193,12 @@ export function extractPlaywrightFailures(playwrightOutput) {
 
 function tryParseJson(str) {
   try { return JSON.parse(str); } catch { return null; }
+}
+
+// Cap raw runner output before it enters results — an unparseable dump from a
+// large suite can exceed the synthesis prompt's context limit (issue #6).
+// Keeps the head (command/setup errors) and tail (final failure summary).
+export function capOutput(str, head = 2000, tail = 2000) {
+  if (typeof str !== 'string' || str.length <= head + tail) return str;
+  return `${str.slice(0, head)}\n... [truncated ${str.length - head - tail} chars] ...\n${str.slice(-tail)}`;
 }
