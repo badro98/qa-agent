@@ -1,6 +1,6 @@
 import { execSync } from 'child_process';
 import { dirname, basename, extname, join } from 'path';
-import { existsSync, readFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 
 export async function executeTests({ changeMap, mode, failedTests, config, execFn = execSync, readFileFn = readFileSync }) {
@@ -102,7 +102,7 @@ function buildVitestCmd(mode, changeMap, failedTests, config) {
   if (mode === 'regression') return 'npx vitest run --reporter=json';
 
   // PR mode: scope to test files that correspond to changed source files
-  const scopedFiles = deriveScopedTestFiles(changeMap);
+  const scopedFiles = deriveScopedTestFiles(changeMap, config);
   if (scopedFiles.length > 0) {
     return `npx vitest run ${scopedFiles.join(' ')} --reporter=json`;
   }
@@ -113,15 +113,32 @@ function buildVitestCmd(mode, changeMap, failedTests, config) {
 }
 
 // Derive test file paths from changed source files in the changeMap.
-// Checks __tests__/ subdirectory layout first, then flat (alongside source) layout.
+// Two layout families are checked:
+//  - colocated: <dir>/__tests__/<base>.test.* preferred over <dir>/<base>.test.*
+//    (first match wins — these are usually the same test in alternate spots)
+//  - mirror: <test_paths.unit>[/<subdir>]/<base>.test.* (pointd keeps tests in
+//    tests/unit + tests/integration; all matches are kept — they're distinct tests)
+// Existence is checked against projectRoot because CI runs the agent from
+// .qa-agent while the project lives at PROJECT_ROOT; returned paths stay
+// project-relative since the vitest command executes with cwd=PROJECT_ROOT.
 // Numeric prefixes like "5-" are stripped since test files don't carry them.
-// Pass existsFn to override fs.existsSync (useful in tests).
-export function deriveScopedTestFiles(changeMap, { existsFn = existsSync } = {}) {
+// Pass existsFn/readdirFn/projectRoot to override fs access (useful in tests).
+export function deriveScopedTestFiles(changeMap, config, {
+  existsFn = existsSync,
+  readdirFn = listSubdirectories,
+  projectRoot = process.env.PROJECT_ROOT || '.',
+} = {}) {
   if (!changeMap?.surfaces?.length) return [];
 
   const extensions = ['.test.js', '.test.ts', '.test.tsx', '.test.jsx'];
   const seenSources = new Set();
   const testFiles = [];
+  const addUnique = (file) => { if (!testFiles.includes(file)) testFiles.push(file); };
+
+  const unitPath = config?.test_paths?.unit;
+  const mirrorDirs = unitPath
+    ? [unitPath, ...readdirFn(join(projectRoot, unitPath)).map(sub => join(unitPath, sub))]
+    : [];
 
   for (const surface of changeMap.surfaces) {
     if (surface.type === 'test') continue;
@@ -134,21 +151,36 @@ export function deriveScopedTestFiles(changeMap, { existsFn = existsSync } = {})
     if (seenSources.has(sourceKey)) continue; // deduplicate by source file
     seenSources.add(sourceKey);
 
-    // Check __tests__/ subdirectory first, then flat layout alongside source
-    const candidates = [
+    // Colocated: __tests__/ subdirectory first, then flat alongside source
+    const colocated = [
       ...extensions.map(ext => `${dir}/__tests__/${base}${ext}`),
       ...extensions.map(ext => `${dir}/${base}${ext}`),
     ];
+    for (const candidate of colocated) {
+      if (existsFn(join(projectRoot, candidate))) {
+        addUnique(candidate);
+        break; // one colocated test file per source file
+      }
+    }
 
-    for (const candidate of candidates) {
-      if (existsFn(candidate)) {
-        testFiles.push(candidate);
-        break; // one test file per source file
+    // Mirror: keep every match — unit and integration tests are distinct
+    for (const mirrorDir of mirrorDirs) {
+      for (const ext of extensions) {
+        const candidate = join(mirrorDir, `${base}${ext}`);
+        if (existsFn(join(projectRoot, candidate))) addUnique(candidate);
       }
     }
   }
 
   return testFiles;
+}
+
+function listSubdirectories(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name);
+  } catch {
+    return []; // test_paths.unit missing or unreadable: mirror layout just contributes nothing
+  }
 }
 
 // Derive a Playwright --grep pattern from the flows affected by changed surfaces.
