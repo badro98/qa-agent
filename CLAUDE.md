@@ -52,6 +52,7 @@ Each target repo gets its own copy at root. Key fields:
 - `critical_flows` — flows that must be covered
 - `high_risk_surfaces` — surface types that auto-score as high risk
 - `test_paths.unit` / `test_paths.e2e` — where tests live
+- `test_timeouts.unit` / `test_timeouts.e2e` — optional per-runner exec timeout in ms (default 600000)
 - `test_output_mode: "propose"` — agent drafts, you promote (never auto-commits)
 
 ## Key gotchas

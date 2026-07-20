@@ -35,6 +35,118 @@ describe('executeTests e2e runner gate', () => {
   });
 });
 
+describe('executeTests runner exec options', () => {
+  const passingVitestJson = JSON.stringify({ testResults: [] });
+  const passingPlaywrightJson = JSON.stringify({ suites: [] });
+
+  function makeCapturingExecFn() {
+    const calls = [];
+    const execFn = (cmd, opts) => {
+      calls.push({ cmd, opts });
+      return cmd.includes('playwright') ? passingPlaywrightJson : passingVitestJson;
+    };
+    return { execFn, calls };
+  }
+
+  it('defaults runner timeouts to 10 minutes (issues pointd#500/#507: 87-file suite exceeded 120s on CI)', async () => {
+    const { execFn, calls } = makeCapturingExecFn();
+    const config = { test_runners: { unit: 'vitest', e2e: 'playwright' }, test_paths: { unit: './tests' }, test_retry_count: 0 };
+
+    await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn });
+
+    const vitestCall = calls.find(c => c.cmd.includes('vitest'));
+    const playwrightCall = calls.find(c => c.cmd.includes('playwright'));
+    expect(vitestCall.opts.timeout).toBe(600000);
+    expect(playwrightCall.opts.timeout).toBe(600000);
+  });
+
+  it('honors per-runner timeout overrides from config.test_timeouts', async () => {
+    const { execFn, calls } = makeCapturingExecFn();
+    const config = {
+      test_runners: { unit: 'vitest', e2e: 'playwright' },
+      test_paths: { unit: './tests' },
+      test_retry_count: 0,
+      test_timeouts: { unit: 240000, e2e: 480000 },
+    };
+
+    await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn });
+
+    const vitestCall = calls.find(c => c.cmd.includes('vitest'));
+    const playwrightCall = calls.find(c => c.cmd.includes('playwright'));
+    expect(vitestCall.opts.timeout).toBe(240000);
+    expect(playwrightCall.opts.timeout).toBe(480000);
+  });
+
+  it('raises maxBuffer above the 1MB node default so full-suite JSON output is not truncated', async () => {
+    const { execFn, calls } = makeCapturingExecFn();
+    const config = { test_runners: { unit: 'vitest' }, test_paths: { unit: './tests' }, test_retry_count: 0 };
+
+    await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn });
+
+    const vitestCall = calls.find(c => c.cmd.includes('vitest'));
+    expect(vitestCall.opts.maxBuffer).toBeGreaterThanOrEqual(16 * 1024 * 1024);
+  });
+});
+
+describe('executeTests vitest output file', () => {
+  // Capturing full-suite JSON via the stdout pipe was ~10x slower than the same run
+  // redirected to a file (300s vs 23s locally) — the cause of pointd#500/#507 timeouts.
+  // Vitest results must flow through --outputFile, not the pipe.
+  const passingJson = JSON.stringify({ testResults: [] });
+  const failingJson = JSON.stringify({
+    testResults: [{
+      name: 'tests/unit/foo.test.js',
+      assertionResults: [{ status: 'failed', ancestorTitles: ['suite'], title: 'breaks' }]
+    }]
+  });
+
+  it('appends --outputFile to the vitest command and parses results from that file', async () => {
+    const calls = [];
+    const execFn = (cmd) => { calls.push(cmd); return ''; };
+    const readFileFn = (path) => {
+      const match = calls[0].match(/--outputFile=(\S+)/);
+      expect(path).toBe(match[1].replace(/"/g, ''));
+      return passingJson;
+    };
+    const config = { test_runners: { unit: 'vitest' }, test_paths: { unit: './tests' }, test_retry_count: 0 };
+
+    const results = await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn, readFileFn });
+
+    expect(calls[0]).toContain('--outputFile=');
+    expect(results.vitest).toEqual({ testResults: [] });
+    expect(results.failures.vitest).toEqual([]);
+  });
+
+  it('extracts failures from the output file when vitest exits nonzero, and scopes the retry', async () => {
+    const calls = [];
+    const execFn = (cmd) => {
+      calls.push(cmd);
+      if (calls.length === 1) throw Object.assign(new Error('exit 1'), { status: 1 });
+      return '';
+    };
+    const readFileFn = () => (calls.length === 1 ? failingJson : passingJson);
+    const config = { test_runners: { unit: 'vitest' }, test_paths: { unit: './tests' }, test_retry_count: 1 };
+
+    const results = await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn, readFileFn });
+
+    expect(calls.length).toBe(2);
+    expect(calls[1]).toContain('tests/unit/foo.test.js');
+    expect(calls[1]).toContain('--outputFile=');
+    expect(results.failures.vitest).toEqual([]);
+  });
+
+  it('falls back to a capped error blob when the runner dies without writing the output file', async () => {
+    const execFn = () => { throw Object.assign(new Error('spawnSync /bin/sh ETIMEDOUT'), { code: 'ETIMEDOUT' }); };
+    const readFileFn = () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); };
+    const config = { test_runners: { unit: 'vitest' }, test_paths: { unit: './tests' }, test_retry_count: 1 };
+
+    const results = await executeTests({ changeMap: null, mode: 'regression', failedTests: null, config, execFn, readFileFn });
+
+    expect(results.vitest.error).toContain('ETIMEDOUT');
+    expect(results.failures.vitest).toEqual([]);
+  });
+});
+
 describe('capOutput', () => {
   it('returns short strings unchanged', () => {
     expect(capOutput('brief error')).toBe('brief error');
@@ -87,13 +199,26 @@ describe('extractVitestFailures', () => {
     expect(extractVitestFailures(output)).toEqual([]);
   });
 
-  it('extracts failing test file paths', () => {
+  it('extracts failing test file paths from vitest v4 output (file path lives in "name")', () => {
+    const output = {
+      testResults: [{
+        name: '/app/tests/unit/auth.test.js',
+        assertionResults: [
+          { status: 'failed', ancestorTitles: ['AuthStore'], title: 'logs in user' },
+          { status: 'passed', ancestorTitles: ['AuthStore'], title: 'logs out user' }
+        ]
+      }]
+    };
+    const result = extractVitestFailures(output);
+    expect(result).toEqual([{ file: '/app/tests/unit/auth.test.js', tests: ['AuthStore > logs in user'] }]);
+  });
+
+  it('falls back to legacy testFilePath key', () => {
     const output = {
       testResults: [{
         testFilePath: '/app/src/__tests__/auth.test.js',
         assertionResults: [
-          { status: 'failed', ancestorTitles: ['AuthStore'], title: 'logs in user' },
-          { status: 'passed', ancestorTitles: ['AuthStore'], title: 'logs out user' }
+          { status: 'failed', ancestorTitles: ['AuthStore'], title: 'logs in user' }
         ]
       }]
     };
