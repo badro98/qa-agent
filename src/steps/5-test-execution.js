@@ -1,38 +1,60 @@
 import { execSync } from 'child_process';
-import { dirname, basename, extname } from 'path';
-import { existsSync } from 'fs';
+import { dirname, basename, extname, join } from 'path';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
 
-export async function executeTests({ changeMap, mode, failedTests, config, execFn = execSync }) {
+export async function executeTests({ changeMap, mode, failedTests, config, execFn = execSync, readFileFn = readFileSync }) {
   const results = { vitest: null, playwright: null, failures: { vitest: [], playwright: [] } };
   const cwd = process.env.PROJECT_ROOT || process.cwd();
   const maxRetries = config.test_retry_count ?? 0;
 
+  // 10-min default: pointd's 87-file suite needs ~135s of CPU, which blew the old
+  // 120s cap on 4-vCPU CI runners (pointd#500, pointd#507 — spawnSync ETIMEDOUT).
+  // Override per repo via config.test_timeouts.{unit,e2e} (ms).
+  const timeouts = config.test_timeouts || {};
+  const vitestTimeout = timeouts.unit ?? 600000;
+  const playwrightTimeout = timeouts.e2e ?? 600000;
+  // Full-suite --reporter=json output can approach node's 1MB maxBuffer default.
+  const maxBuffer = 64 * 1024 * 1024;
+
   // --- Vitest ---
-  let vitestCmd = buildVitestCmd(mode, changeMap, failedTests, config);
+  // Results go through --outputFile, never the stdout pipe: capturing full-suite
+  // JSON via the pipe ran ~10x slower than the identical run redirected to a file
+  // (300s vs 23s locally), which is what blew the old 120s timeout in CI.
+  const vitestOutputFile = join(tmpdir(), `qa-agent-vitest-${process.pid}.json`);
+  let vitestCmd = withVitestOutputFile(buildVitestCmd(mode, changeMap, failedTests, config), vitestOutputFile);
   let vitestAttempts = 0;
 
   while (vitestAttempts <= maxRetries) {
+    let execErr = null;
+    try { unlinkSync(vitestOutputFile); } catch { /* nothing stale to clear */ }
     try {
-      const out = execFn(vitestCmd, { encoding: 'utf8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'], cwd });
-      results.vitest = JSON.parse(out);
-      results.failures.vitest = []; // all passed
-      break;
+      execFn(vitestCmd, { encoding: 'utf8', timeout: vitestTimeout, maxBuffer, stdio: ['pipe', 'pipe', 'pipe'], cwd });
     } catch (err) {
-      const parsed = tryParseJson(err.stdout);
-      results.vitest = parsed || { error: capOutput(err.stdout || err.stderr || err.message) };
-      results.failures.vitest = parsed ? extractVitestFailures(parsed) : [];
+      execErr = err;
+    }
 
-      if (vitestAttempts < maxRetries && results.failures.vitest.length > 0) {
-        console.log(`Vitest: ${results.failures.vitest.length} failure(s). Retrying (attempt ${vitestAttempts + 2}/${maxRetries + 1})...`);
-        // Scope next attempt to only failing files
-        const failingFiles = results.failures.vitest.map(f => f.file).join(' ');
-        vitestCmd = `npx vitest run ${failingFiles} --reporter=json`;
-      } else {
-        break;
-      }
+    const parsed = tryReadJsonFile(vitestOutputFile, readFileFn);
+    if (!execErr && parsed) {
+      results.vitest = parsed;
+      results.failures.vitest = []; // exit 0: all passed
+      break;
+    }
+
+    results.vitest = parsed || { error: capOutput(execErr?.stdout || execErr?.stderr || execErr?.message || 'vitest wrote no JSON output') };
+    results.failures.vitest = parsed ? extractVitestFailures(parsed) : [];
+
+    if (vitestAttempts < maxRetries && results.failures.vitest.length > 0) {
+      console.log(`Vitest: ${results.failures.vitest.length} failure(s). Retrying (attempt ${vitestAttempts + 2}/${maxRetries + 1})...`);
+      // Scope next attempt to only failing files
+      const failingFiles = results.failures.vitest.map(f => f.file).join(' ');
+      vitestCmd = withVitestOutputFile(`npx vitest run ${failingFiles} --reporter=json`, vitestOutputFile);
+    } else {
+      break;
     }
     vitestAttempts++;
   }
+  try { unlinkSync(vitestOutputFile); } catch { /* never written, or injected readFileFn */ }
 
   // --- Playwright ---
   // Repos without an e2e runner in qa-agent.config.json skip Playwright entirely,
@@ -47,7 +69,7 @@ export async function executeTests({ changeMap, mode, failedTests, config, execF
 
   while (playwrightAttempts <= maxRetries) {
     try {
-      const out = execFn(playwrightCmd, { encoding: 'utf8', timeout: 180000, stdio: ['pipe', 'pipe', 'pipe'], cwd });
+      const out = execFn(playwrightCmd, { encoding: 'utf8', timeout: playwrightTimeout, maxBuffer, stdio: ['pipe', 'pipe', 'pipe'], cwd });
       results.playwright = JSON.parse(out);
       results.failures.playwright = [];
       break;
@@ -166,7 +188,8 @@ export function extractVitestFailures(vitestOutput) {
       .filter(a => a.status === 'failed')
       .map(a => [...(a.ancestorTitles || []), a.title].join(' > '));
     if (failedTests.length > 0) {
-      failures.push({ file: result.testFilePath, tests: failedTests });
+      // vitest v4 puts the file path in "name"; older jest-style output used "testFilePath"
+      failures.push({ file: result.name ?? result.testFilePath, tests: failedTests });
     }
   }
   return failures;
@@ -193,6 +216,14 @@ export function extractPlaywrightFailures(playwrightOutput) {
 
 function tryParseJson(str) {
   try { return JSON.parse(str); } catch { return null; }
+}
+
+function withVitestOutputFile(cmd, outputFile) {
+  return `${cmd} --outputFile=${outputFile}`;
+}
+
+function tryReadJsonFile(path, readFileFn) {
+  try { return JSON.parse(readFileFn(path, 'utf8')); } catch { return null; }
 }
 
 // Cap raw runner output before it enters results — an unparseable dump from a
