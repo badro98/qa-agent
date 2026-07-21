@@ -232,7 +232,7 @@ describe('deriveScopedTestFiles', () => {
   const existsNone = () => false;
   const existsAll = () => true;
   const existsTestsDir = (p) => p.includes('/__tests__/');
-  const existsFlat = (p) => !p.includes('/__tests__/');
+  const existsFlat = (p) => !p.includes('/__tests__/') && !p.startsWith('tests/');
 
   it('returns empty array when changeMap is null', () => {
     expect(deriveScopedTestFiles(null)).toEqual([]);
@@ -246,42 +246,42 @@ describe('deriveScopedTestFiles', () => {
     const changeMap = {
       surfaces: [{ file: 'src/steps/__tests__/foo.test.js', type: 'test' }]
     };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsAll })).toEqual([]);
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsAll })).toEqual([]);
   });
 
   it('returns empty array when no test files exist on disk', () => {
     const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsNone })).toEqual([]);
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsNone })).toEqual([]);
   });
 
   it('finds .js test file in __tests__ subdirectory', () => {
     const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsTestsDir }))
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsTestsDir }))
       .toEqual(['src/utils/__tests__/rewards.test.js']);
   });
 
   it('finds .ts test file in __tests__ subdirectory', () => {
-    const existsTs = (p) => p.endsWith('.test.ts');
+    const existsTs = (p) => p.endsWith('.test.ts') && p.includes('/__tests__/');
     const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsTs }))
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsTs }))
       .toEqual(['src/utils/__tests__/rewards.test.ts']);
   });
 
   it('falls back to flat layout when __tests__/ file does not exist', () => {
     const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsFlat }))
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsFlat }))
       .toEqual(['src/utils/rewards.test.js']);
   });
 
   it('prefers __tests__/ layout over flat when both exist', () => {
     const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsAll }))
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsAll }))
       .toEqual(['src/utils/__tests__/rewards.test.js']);
   });
 
   it('strips numeric prefix from source filename', () => {
     const changeMap = { surfaces: [{ file: 'src/steps/5-test-execution.js', type: 'util' }] };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsTestsDir }))
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsTestsDir }))
       .toEqual(['src/steps/__tests__/test-execution.test.js']);
   });
 
@@ -292,7 +292,7 @@ describe('deriveScopedTestFiles', () => {
         { file: 'src/utils/rewards.js', type: 'util' }
       ]
     };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsTestsDir }))
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsTestsDir }))
       .toEqual(['src/utils/__tests__/rewards.test.js']);
   });
 
@@ -303,11 +303,67 @@ describe('deriveScopedTestFiles', () => {
         { file: 'src/hooks/useAuth.js', type: 'hook' }
       ]
     };
-    expect(deriveScopedTestFiles(changeMap, { existsFn: existsTestsDir }))
+    expect(deriveScopedTestFiles(changeMap, {}, { existsFn: existsTestsDir }))
       .toEqual([
         'src/utils/__tests__/rewards.test.js',
         'src/hooks/__tests__/useAuth.test.js'
       ]);
+  });
+});
+
+describe('deriveScopedTestFiles mirror layout (pointd-style tests/unit + tests/integration)', () => {
+  // pointd keeps tests in a mirror tree (tests/unit/DestinationPage.test.jsx), not
+  // next to the source — the old colocated-only candidates never matched, so every
+  // PR run fell back to the full suite (the trigger for pointd#500/#507 timeouts).
+  const config = { test_paths: { unit: './tests' } };
+  const readdirUnitIntegration = () => ['unit', 'integration'];
+
+  it('finds mirror-layout test files under subdirectories of test_paths.unit', () => {
+    const existsFn = (p) => p === 'tests/unit/DestinationPage.test.jsx';
+    const changeMap = { surfaces: [{ file: 'src/components/DestinationPage.jsx', type: 'component' }] };
+    expect(deriveScopedTestFiles(changeMap, config, { existsFn, readdirFn: readdirUnitIntegration }))
+      .toEqual(['tests/unit/DestinationPage.test.jsx']);
+  });
+
+  it('returns both unit and integration mirror tests when both exist', () => {
+    const existsFn = (p) => p === 'tests/unit/store.test.js' || p === 'tests/integration/store.test.js';
+    const changeMap = { surfaces: [{ file: 'src/state/store.js', type: 'state' }] };
+    expect(deriveScopedTestFiles(changeMap, config, { existsFn, readdirFn: readdirUnitIntegration }))
+      .toEqual(['tests/unit/store.test.js', 'tests/integration/store.test.js']);
+  });
+
+  it('finds tests directly under test_paths.unit', () => {
+    const existsFn = (p) => p === 'tests/rewards.test.js';
+    const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
+    expect(deriveScopedTestFiles(changeMap, config, { existsFn, readdirFn: () => [] }))
+      .toEqual(['tests/rewards.test.js']);
+  });
+
+  it('combines a colocated match with mirror matches without duplicates', () => {
+    const existsFn = (p) => p === 'src/utils/rewards.test.js' || p === 'tests/unit/rewards.test.js';
+    const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
+    expect(deriveScopedTestFiles(changeMap, config, { existsFn, readdirFn: readdirUnitIntegration }))
+      .toEqual(['src/utils/rewards.test.js', 'tests/unit/rewards.test.js']);
+  });
+
+  it('checks existence against projectRoot but returns project-relative paths (CI runs from .qa-agent)', () => {
+    const seen = [];
+    const existsFn = (p) => { seen.push(p); return p === '/proj/tests/unit/DestinationPage.test.jsx'; };
+    const changeMap = { surfaces: [{ file: 'src/components/DestinationPage.jsx', type: 'component' }] };
+    const result = deriveScopedTestFiles(changeMap, config, {
+      existsFn,
+      readdirFn: readdirUnitIntegration,
+      projectRoot: '/proj',
+    });
+    expect(result).toEqual(['tests/unit/DestinationPage.test.jsx']);
+    expect(seen.every(p => p.startsWith('/proj/'))).toBe(true);
+  });
+
+  it('tolerates a missing test_paths.unit directory when listing subdirectories', () => {
+    const changeMap = { surfaces: [{ file: 'src/utils/rewards.js', type: 'util' }] };
+    // default readdirFn hits the real fs and ./tests does not exist in this repo
+    expect(deriveScopedTestFiles(changeMap, config, { existsFn: () => false }))
+      .toEqual([]);
   });
 });
 
